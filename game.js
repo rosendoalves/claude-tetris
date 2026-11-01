@@ -30,6 +30,8 @@ const canvas = document.getElementById('board');
 const ctx = canvas.getContext('2d');
 const nextCanvas = document.getElementById('next-canvas');
 const nextCtx = nextCanvas.getContext('2d');
+const holdCanvas = document.getElementById('hold-canvas');
+const holdCtx = holdCanvas.getContext('2d');
 const scoreEl = document.getElementById('score');
 const linesEl = document.getElementById('lines');
 const levelEl = document.getElementById('level');
@@ -51,16 +53,19 @@ function applyTheme(theme) {
 }
 
 let board, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId;
-let scoring, lastMoveWasRotation;
+let scoring, lastMoveWasRotation, hold;
 
 function createBoard() {
   return Array.from({ length: ROWS }, () => new Array(COLS).fill(0));
 }
 
-function randomPiece() {
-  const type = Math.floor(Math.random() * 7) + 1;
+function createPiece(type) {
   const shape = PIECES[type].map(row => [...row]);
   return { type, shape, x: Math.floor(COLS / 2) - Math.floor(shape[0].length / 2), y: 0 };
+}
+
+function randomPiece() {
+  return createPiece(Math.floor(Math.random() * 7) + 1);
 }
 
 function collide(shape, ox, oy) {
@@ -172,17 +177,38 @@ function lockPiece() {
   const tSpin = isTSpin(board, current, lastMoveWasRotation);
   merge();
   clearLines(tSpin);
+  hold = unlockHold(hold);
   spawn();
+  drawHold();
+}
+
+// A fresh piece that collides on entry means the stack reached the top.
+function checkSpawnCollision() {
+  if (collide(current.shape, current.x, current.y)) {
+    endGame();
+  }
 }
 
 function spawn() {
   current = next;
   next = randomPiece();
   lastMoveWasRotation = false;
-  if (collide(current.shape, current.x, current.y)) {
-    endGame();
-  }
+  checkSpawnCollision();
   drawNext();
+}
+
+function holdPiece() {
+  const result = useHold(hold, current.type);
+  if (!result.used) return;
+  hold = result.state;
+  if (result.swapType === null) {
+    spawn();
+  } else {
+    current = createPiece(result.swapType);
+    lastMoveWasRotation = false;
+    checkSpawnCollision();
+  }
+  drawHold();
 }
 
 function updateHUD() {
@@ -242,15 +268,25 @@ function draw() {
       drawBlock(ctx, current.x + c, current.y + r, current.shape[r][c], BLOCK);
 }
 
-function drawNext() {
-  const NB = 30;
-  nextCtx.clearRect(0, 0, nextCanvas.width, nextCanvas.height);
-  const shape = next.shape;
+function drawPreview(context, targetCanvas, piece) {
+  const PB = 30;
+  context.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
+  if (!piece) return;
+  const shape = piece.shape;
   const offX = Math.floor((4 - shape[0].length) / 2);
   const offY = Math.floor((4 - shape.length) / 2);
   for (let r = 0; r < shape.length; r++)
     for (let c = 0; c < shape[r].length; c++)
-      drawBlock(nextCtx, offX + c, offY + r, shape[r][c], NB);
+      drawBlock(context, offX + c, offY + r, shape[r][c], PB);
+}
+
+function drawNext() {
+  drawPreview(nextCtx, nextCanvas, next);
+}
+
+function drawHold() {
+  drawPreview(holdCtx, holdCanvas, hold.type ? createPiece(hold.type) : null);
+  holdCanvas.classList.toggle('locked', hold.locked);
 }
 
 function endGame() {
@@ -303,10 +339,12 @@ function init() {
   dropAccum = 0;
   scoring = createScoringState();
   lastMoveWasRotation = false;
+  hold = createHoldState();
   feedbackEl.replaceChildren();
   lastTime = performance.now();
   next = randomPiece();
   spawn();
+  drawHold();
   updateHUD();
   overlay.classList.add('hidden');
   cancelAnimationFrame(animId);
@@ -333,6 +371,11 @@ document.addEventListener('keydown', e => {
     case 'Space':
       e.preventDefault();
       hardDrop();
+      break;
+    case 'KeyC':
+    case 'ShiftLeft':
+    case 'ShiftRight':
+      holdPiece();
       break;
   }
   updateHUD();

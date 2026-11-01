@@ -16,7 +16,7 @@ python3 -m http.server 8000
 npx serve .
 ```
 
-Tests for the pure scoring module run with Node's built-in runner (no dependencies):
+Tests for the pure scoring and hold modules run with Node's built-in runner (no dependencies):
 
 ```bash
 node --test
@@ -26,12 +26,14 @@ There is no linter configured in this repo.
 
 ## Architecture
 
-Five files, each with one responsibility:
+Seven files, each with one responsibility:
 
-- `index.html` — DOM structure: the `#board` canvas (300×600, 10×20 cells at `BLOCK=30`), the `#next-canvas` preview, the HUD panel (score/lines/level), and the pause/game-over `#overlay`, and the `#feedback` layer over the board (inside `.board-wrap`) that shows achievement text.
+- `index.html` — DOM structure: the `#board` canvas (300×600, 10×20 cells at `BLOCK=30`), the `#hold-canvas` and `#next-canvas` previews, the HUD panel (score/lines/level), and the pause/game-over `#overlay`, and the `#feedback` layer over the board (inside `.board-wrap`) that shows achievement text.
 - `style.css` — dark/retro visual theme, driven by CSS variables in `:root` (Dark, default) overridden by `[data-theme='light']`. The `#theme-toggle` button (wired in `game.js`) flips `data-theme` on `<html>` and persists the choice in `localStorage` (`theme`); `drawGrid` reads the `--grid` variable via `gridColor`. Add new colors as variables for both themes.
 - `scoring.js` — pure scoring logic (no DOM): `SCORE_VALUES`, `createScoringState`, `isTSpin`, `isBoardEmpty`, `scoreClear`. Loaded before `game.js`; also `require`-able from Node.
 - `scoring.test.js` — `node:test` suite for `scoring.js`.
+- `hold.js` — pure hold logic (no DOM): `createHoldState`, `useHold`, `unlockHold`. Loaded before `game.js`; also `require`-able from Node.
+- `hold.test.js` — `node:test` suite for `hold.js`.
 - `game.js` — all game state and logic, structured around a single `requestAnimationFrame` loop.
 
 ### Core state
@@ -47,11 +49,15 @@ Module-level `let` variables (`board`, `current`, `next`, `score`, `lines`, `lev
 ```
 init() → createBoard(), spawn() first piece → requestAnimationFrame(loop)
 loop(ts) → accumulate dt → if dt ≥ dropInterval: advance piece or lockPiece() → draw() → next frame
-lockPiece() → isTSpin() → merge() into board → clearLines(tSpin) → spawn() next piece
+lockPiece() → isTSpin() → merge() into board → clearLines(tSpin) → unlockHold() → spawn() next piece
 spawn() → if the new piece immediately collides → endGame()
 ```
 
-Keyboard input (`keydown` listener) drives horizontal movement, `tryRotate`, `softDrop`, `hardDrop`, and pause (`KeyP`); all input is ignored while `paused` or `gameOver`.
+Keyboard input (`keydown` listener) drives horizontal movement, `tryRotate`, `softDrop`, `hardDrop`, hold (`KeyC`, `ShiftLeft`, `ShiftRight`), and pause (`KeyP`); all input is ignored while `paused` or `gameOver`.
+
+### Hold
+
+`holdPiece()` stores the active piece in the `hold` state (`{ type, locked }`, rules in `hold.js`). An empty slot spawns the next queued piece; an occupied slot swaps in the held type via `createPiece`, so a held piece always re-enters unrotated at the spawn position (and clears `lastMoveWasRotation`). Only one hold per piece: the slot is `locked` (dimmed via `#hold-canvas.locked`) until the next `lockPiece()`. A swapped-in piece that collides ends the game, like `spawn()`.
 
 ### Scoring / leveling
 
