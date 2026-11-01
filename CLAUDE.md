@@ -23,7 +23,7 @@ There is no test suite and no linter configured in this repo.
 Three files, each with one responsibility:
 
 - `index.html` — DOM structure: the `#board` canvas (300×600, 10×20 cells at `BLOCK=30`), the `#next-canvas` preview, the HUD panel (score/lines/level), and the pause/game-over `#overlay`.
-- `style.css` — dark/retro visual theme only.
+- `style.css` — dark/retro visual theme, driven by CSS variables in `:root` (Dark, default) overridden by `[data-theme='light']`. The `#theme-toggle` button (wired in `game.js`) flips `data-theme` on `<html>` and persists the choice in `localStorage` (`theme`); `drawGrid` reads the `--grid` variable via `gridColor`. Add new colors as variables for both themes.
 - `game.js` — all game state and logic, structured around a single `requestAnimationFrame` loop.
 
 ### Core state
