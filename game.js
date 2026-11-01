@@ -18,6 +18,7 @@ const COLORS = [
   '#aed581', // Y - lime
   '#fff176', // SINGLE - light yellow
   '#9575cd', // RING - violet
+  '#78909c', // FIXED_BLOCK / garbage - gray
 ];
 
 const canvas = document.getElementById('board');
@@ -33,6 +34,19 @@ const overlay = document.getElementById('overlay');
 const overlayTitle = document.getElementById('overlay-title');
 const overlayScore = document.getElementById('overlay-score');
 const restartBtn = document.getElementById('restart-btn');
+const menuBtn = document.getElementById('menu-btn');
+const startMenu = document.getElementById('start-menu');
+const menuModes = document.getElementById('menu-modes');
+const menuLevels = document.getElementById('menu-levels');
+const levelList = document.getElementById('level-list');
+const normalBtn = document.getElementById('mode-normal');
+const challengeBtn = document.getElementById('mode-challenge');
+const levelsBackBtn = document.getElementById('levels-back');
+const challengeHud = document.getElementById('challenge-hud');
+const challengeNameEl = document.getElementById('challenge-name');
+const objectiveEl = document.getElementById('objective');
+const progressEl = document.getElementById('progress');
+const energySection = document.getElementById('energy-section');
 const themeBtn = document.getElementById('theme-toggle');
 const feedbackEl = document.getElementById('feedback');
 const freezeEl = document.getElementById('freeze');
@@ -61,6 +75,18 @@ let scoring, lastMoveWasRotation, hold, freezeMs;
 // energy, vision/slow timers, the one-level undo snapshot and the menu flag.
 let queue, energy, timers, undoSnapshot, menuOpen;
 const QUEUE_LENGTH = ABILITY_SETTINGS.VISION_COUNT - 1;
+
+// Game mode: 'normal' or 'challenge' (levelDef is the LEVELS entry being played).
+// `running` is false while the start menu is showing (keys are ignored).
+let mode = 'normal', levelDef = null, progress = null, garbageAccum = 0, running = false;
+
+function isChallenge() {
+  return mode === 'challenge';
+}
+
+function rule(name) {
+  return isChallenge() && levelDef.rules[name];
+}
 
 // Icon drawn on the block that carries a power-up.
 const POWERUP_ICONS = { bomb: '💣', lightning: '⚡', tint: '🎨', gravity: '⬇️', freeze: '❄️' };
@@ -96,13 +122,14 @@ function collide(shape, ox, oy) {
 }
 
 function tryRotate() {
-  const rotated = rotateCW(current.shape);
+  const clockwise = !rule('invertRotation');
+  const rotated = clockwise ? rotateCW(current.shape) : rotateCCW(current.shape);
   const kicks = [0, -1, 1, -2, 2];
   for (const kick of kicks) {
     if (!collide(rotated, current.x + kick, current.y)) {
       if (current.powerup) {
         const { kind, r, c } = current.powerup;
-        current.powerup = { kind, ...rotatePowerupCell({ r, c }, rotated.length) };
+        current.powerup = { kind, ...rotatePowerupCell({ r, c }, rotated.length, clockwise) };
       }
       current.shape = rotated;
       current.x += kick;
@@ -230,6 +257,7 @@ function lockPiece() {
   undoSnapshot.cleared = cleared > 0;
   undoSnapshot.firedPowerup = announced.length > 0;
   hold = unlockHold(hold);
+  if (checkChallenge()) { drawHold(); return; }
   if (cleared === 4 && nonStandardOn()) spawnReward();
   else spawn();
   drawHold();
@@ -324,10 +352,12 @@ function draw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   drawGrid();
 
-  // board
-  for (let r = 0; r < ROWS; r++)
-    for (let c = 0; c < COLS; c++)
-      drawBlock(ctx, c, r, board[r][c], BLOCK);
+  // board (the Invisible level hides locked blocks)
+  if (!rule('invisibleLocked')) {
+    for (let r = 0; r < ROWS; r++)
+      for (let c = 0; c < COLS; c++)
+        drawBlock(ctx, c, r, board[r][c], BLOCK);
+  }
 
   // ghost
   const gy = ghostY();
@@ -539,13 +569,72 @@ function cancelFreeze() {
   updateFreezeEl();
 }
 
-function endGame() {
+function showOverlay(title, scoreText, win = false) {
+  overlayTitle.textContent = title;
+  overlayTitle.classList.toggle('win', win);
+  overlayScore.textContent = scoreText;
+  restartBtn.textContent = isChallenge() ? 'Reintentar' : 'Reiniciar';
+  menuBtn.textContent = isChallenge() ? 'Volver a niveles' : 'Menú';
+  overlay.classList.remove('hidden');
+}
+
+function stopRun() {
   gameOver = true;
   cancelFreeze();
   cancelAnimationFrame(animId);
-  overlayTitle.textContent = 'GAME OVER';
-  overlayScore.textContent = `Puntuación: ${score.toLocaleString()}`;
-  overlay.classList.remove('hidden');
+}
+
+// A spawn collision (or any top-out): game over, or a lost challenge.
+function endGame() {
+  if (isChallenge()) {
+    progress = { ...progress, toppedOut: true };
+    finishChallenge(evaluate(levelDef, progress));
+    return;
+  }
+  stopRun();
+  showOverlay('GAME OVER', `Puntuación: ${score.toLocaleString()}`);
+}
+
+function finishChallenge(result) {
+  stopRun();
+  const won = result === 'won';
+  showOverlay(
+    won ? 'VICTORIA' : 'DERROTA',
+    `${levelDef.name} · Líneas: ${lines} · Tiempo: ${formatTime(progress.elapsedMs)}`,
+    won,
+  );
+}
+
+function updateChallengeHud() {
+  challengeNameEl.textContent = levelDef.name;
+  objectiveEl.textContent = objectiveText(levelDef);
+  progressEl.textContent = progressText(levelDef, progress).join('\n');
+}
+
+// Syncs progress with the board and ends the run on victory or defeat.
+function checkChallenge() {
+  if (!isChallenge() || gameOver) return false;
+  progress = { ...progress, lines, fixedRemaining: countFixed(board) };
+  updateChallengeHud();
+  const result = evaluate(levelDef, progress);
+  if (result === 'playing') return false;
+  finishChallenge(result);
+  return true;
+}
+
+// Garbage rises: the board and, if it now overlaps, the active piece are
+// pushed up. Blocks pushed off the top, or a piece left above it, is a defeat.
+function addGarbage() {
+  const result = addGarbageRow(board, Math.floor(Math.random() * COLS));
+  board = result.board;
+  let toppedOut = result.overflowed;
+  let guard = 0;
+  while (collide(current.shape, current.x, current.y) && guard++ < ROWS) current.y--;
+  if (current.shape.some((row, r) => row.some(v => v && current.y + r < 0))) toppedOut = true;
+  if (toppedOut) {
+    progress = { ...progress, toppedOut: true };
+    finishChallenge('lost');
+  }
 }
 
 function togglePause() {
@@ -558,9 +647,7 @@ function togglePause() {
   } else {
     cancelAnimationFrame(animId);
     cancelFreeze();
-    overlayTitle.textContent = 'PAUSA';
-    overlayScore.textContent = '';
-    overlay.classList.remove('hidden');
+    showOverlay('PAUSA', '');
   }
 }
 
@@ -572,6 +659,20 @@ function loop(ts) {
   timers = tickTimers(timers, dt);
   if (timers.visionMs > 0 || timers.slowMs > 0 || wasVision) updateEffects();
   if (wasVision && timers.visionMs === 0) drawVision();
+  if (isChallenge()) {
+    const tick = Math.min(dt, MAX_TIMER_TICK_MS);
+    progress = { ...progress, elapsedMs: progress.elapsedMs + tick };
+    const interval = levelDef.rules.garbageIntervalMs;
+    if (interval) {
+      garbageAccum += tick;
+      if (garbageAccum >= interval) {
+        garbageAccum -= interval;
+        addGarbage();
+      }
+    }
+    if (!gameOver) checkChallenge();
+    if (gameOver) return;
+  }
   if (freezeMs > 0) {
     // Frozen: gravity is skipped, manual moves still work.
     freezeMs = Math.max(0, freezeMs - Math.min(dt, MAX_TIMER_TICK_MS));
@@ -593,8 +694,20 @@ function loop(ts) {
   animId = requestAnimationFrame(loop);
 }
 
-function init() {
-  board = createBoard();
+function init(newMode = 'normal', def = null) {
+  mode = newMode;
+  levelDef = def;
+  running = true;
+  startMenu.classList.add('hidden');
+  const challenge = isChallenge();
+  // Per-run flags: challenges play without bonus pieces, power-ups and abilities.
+  features.nonStandard = features.powerups = features.abilities = !challenge;
+  challengeHud.classList.toggle('hidden', !challenge);
+  visionPanel.classList.toggle('hidden', challenge);
+  energySection.classList.toggle('hidden', challenge);
+  board = challenge ? buildPresetBoard(def, ROWS, COLS) : createBoard();
+  progress = challenge ? createProgress(def, ROWS, COLS) : null;
+  garbageAccum = 0;
   score = 0;
   lines = 0;
   level = 1;
@@ -620,12 +733,40 @@ function init() {
   spawn();
   drawHold();
   updateHUD();
+  if (challenge) updateChallengeHud();
   overlay.classList.add('hidden');
   cancelAnimationFrame(animId);
   animId = requestAnimationFrame(loop);
 }
 
+// Start menu: Normal, or Desafío with a list built from LEVELS (so a new
+// entry, even one pushed at runtime, shows up without code changes).
+function showStartMenu(view = 'modes') {
+  running = false;
+  cancelAnimationFrame(animId);
+  overlay.classList.add('hidden');
+  abilityMenu.classList.add('hidden');
+  if (view === 'levels') {
+    levelList.replaceChildren(...LEVELS.map(level => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'level-btn';
+      const name = document.createElement('strong');
+      name.textContent = level.name;
+      const description = document.createElement('span');
+      description.textContent = level.description;
+      button.append(name, description);
+      button.addEventListener('click', () => init('challenge', level));
+      return button;
+    }));
+  }
+  menuModes.classList.toggle('hidden', view !== 'modes');
+  menuLevels.classList.toggle('hidden', view !== 'levels');
+  startMenu.classList.remove('hidden');
+}
+
 document.addEventListener('keydown', e => {
+  if (!running) return;
   if (menuOpen) {
     // The ability menu owns the keyboard; P is ignored while it is open.
     if (e.code === 'Escape') closeAbilityMenu();
@@ -667,7 +808,11 @@ document.addEventListener('keydown', e => {
   updateHUD();
 });
 
-restartBtn.addEventListener('click', init);
+restartBtn.addEventListener('click', () => init(mode, levelDef));
+menuBtn.addEventListener('click', () => showStartMenu(isChallenge() ? 'levels' : 'modes'));
+normalBtn.addEventListener('click', () => init('normal'));
+challengeBtn.addEventListener('click', () => showStartMenu('levels'));
+levelsBackBtn.addEventListener('click', () => showStartMenu('modes'));
 
 themeBtn.addEventListener('click', () => {
   const theme = root.dataset.theme === 'light' ? 'dark' : 'light';
@@ -678,4 +823,4 @@ themeBtn.addEventListener('click', () => {
 
 applyTheme(root.dataset.theme === 'light' ? 'light' : 'dark');
 
-init();
+showStartMenu('modes');

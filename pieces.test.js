@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   PLUS_TYPE, U_TYPE, Y_TYPE, SINGLE_TYPE, RING_TYPE,
-  PIECE_SETTINGS, PIECES, rotateCW, collides, spawnX, pickPieceType, previewOffset,
+  PIECE_SETTINGS, PIECES, rotateCW, rotateCCW, collides, spawnX, pickPieceType, previewOffset,
 } = require('./pieces.js');
 
 const COLS = 10;
@@ -39,6 +39,13 @@ test('rotating four times returns the original matrix and keeps the block count'
     }
     assert.deepEqual(shape, PIECES[type]);
   }
+});
+
+test('rotateCCW undoes rotateCW', () => {
+  for (let type = 1; type < PIECES.length; type++) {
+    assert.deepEqual(rotateCCW(rotateCW(PIECES[type])), PIECES[type]);
+  }
+  assert.deepEqual(rotateCCW([[1, 2], [3, 4]]), [[2, 4], [1, 3]]);
 });
 
 test('PLUS, SINGLE and RING are rotation invariant; U and Y are not', () => {

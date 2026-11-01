@@ -16,7 +16,7 @@ python3 -m http.server 8000
 npx serve .
 ```
 
-Tests for the pure scoring, hold, piece, power-up and ability modules run with Node's built-in runner (no dependencies):
+Tests for the pure scoring, hold, piece, power-up, ability and challenge modules run with Node's built-in runner (no dependencies):
 
 ```bash
 node --test
@@ -26,7 +26,7 @@ There is no linter configured in this repo.
 
 ## Architecture
 
-Thirteen files, each with one responsibility:
+Sixteen files, each with one responsibility:
 
 - `index.html` — DOM structure: the `#board` canvas (300×600, 10×20 cells at `BLOCK=30`), the `#hold-canvas` and `#next-canvas` previews, the HUD panel (score/lines/level), and the pause/game-over `#overlay`, and the `#feedback` layer over the board (inside `.board-wrap`) that shows achievement text.
 - `style.css` — dark/retro visual theme, driven by CSS variables in `:root` (Dark, default) overridden by `[data-theme='light']`. The `#theme-toggle` button (wired in `game.js`) flips `data-theme` on `<html>` and persists the choice in `localStorage` (`theme`); `drawGrid` reads the `--grid` variable via `gridColor`. Add new colors as variables for both themes.
@@ -38,13 +38,16 @@ Thirteen files, each with one responsibility:
 - `powerups.test.js` — `node:test` suite for `powerups.js`.
 - `abilities.js` — pure ability logic (no DOM): `ABILITY_SETTINGS`, `ABILITIES`, `addEnergy`, `canOpenMenu`, `canUndo`, `isAbilityAvailable`, `tickTimers`, `effectiveDropInterval`. Loaded before `game.js`; also `require`-able from Node.
 - `abilities.test.js` — `node:test` suite for `abilities.js`.
+- `levels.js` — `LEVELS`, the challenge levels as pure data (`id`, `name`, `description`, `objective`, `rules`, `defeat`). Adding a level only needs a new entry (or `LEVELS.push(...)` at runtime): the start menu list is built from it. Loaded before `game.js`; also `require`-able from Node.
+- `challenge.js` — pure challenge logic (no DOM): `FIXED_BLOCK` (13), `createProgress`, `evaluate`, `objectiveText`, `progressText`, `addGarbageRow`, `buildPresetBoard`, `countFixed`, `validateLevel`. Loaded before `game.js`; also `require`-able from Node.
+- `challenge.test.js` — `node:test` suite for `challenge.js` and `levels.js`.
 - `hold.js` — pure hold logic (no DOM): `createHoldState`, `useHold`, `unlockHold` (the hold state also stores a power-up kind). Loaded before `game.js`; also `require`-able from Node.
 - `hold.test.js` — `node:test` suite for `hold.js`.
 - `game.js` — all game state and logic, structured around a single `requestAnimationFrame` loop.
 
 ### Core state
 
-Module-level `let` variables (`board`, `current`, `next`, `score`, `lines`, `level`, `paused`, `gameOver`, `dropInterval`, ...) hold all game state — there is no class or store; `init()` resets them all and kicks off the loop.
+Module-level `let` variables (`board`, `current`, `next`, `score`, `lines`, `level`, `paused`, `gameOver`, `dropInterval`, ...) hold all game state — there is no class or store; `init(mode, level)` resets them all and kicks off the loop; it is not called at load (the start menu is shown instead and `running` is false, so keys are ignored until a mode is picked).
 
 - `board` is a `ROWS × COLS` matrix; each cell is `0` (empty) or a piece color index (1–12; the type doubles as the colour index).
 - `current` / `next` are `{ type, shape, x, y }`, where `shape` is a square matrix of color indices.
@@ -53,7 +56,7 @@ Module-level `let` variables (`board`, `current`, `next`, `score`, `lines`, `lev
 ### Game loop flow
 
 ```
-init() → createBoard(), spawn() first piece → requestAnimationFrame(loop)
+load → showStartMenu() → (Normal | Desafío → level) → init(mode, level) → createBoard() (or preset), spawn() first piece → requestAnimationFrame(loop)
 loop(ts) → accumulate dt → if dt ≥ dropInterval: advance piece or lockPiece() → draw() → next frame
 lockPiece() → isTSpin() → merge() into board → clearLines(tSpin) → unlockHold() → spawn() next piece
 spawn() → if the new piece immediately collides → endGame()
@@ -73,6 +76,10 @@ Every `POWERUP_SETTINGS.LINE_INTERVAL` (10) cleared lines (several crossings in 
 
 Clearing lines fills the `energy` bar (`ABILITY_SETTINGS.ENERGY_PER_LINES`, clamped to `ENERGY_REQUIRED`). `E` opens the menu only when the bar is full. The menu (`#ability-menu`) pauses through the same mechanics as `P` (`paused` plus `cancelAnimationFrame`) but shows no PAUSA overlay, ignores `P`, and does not cancel a freeze (`freezeMs` only ticks inside `loop`). `Escape` closes it keeping the energy; choosing an unavailable ability does nothing (the menu stays open, the button is disabled, energy is kept). A used ability empties the bar. Vision (20 s) shows `next` + 4 queued pieces in `#vision-canvas`; Intercambio replaces the active piece by a random different type that fits at spawn (power-up kind kept); Ralentizar doubles the effective gravity interval for 10 s via `effectiveDropInterval` without touching `dropInterval`; Deshacer restores the pre-lock `undoSnapshot` (board, scoring state, hold; score, lines and level are not rolled back, only drop points were earned) and is refused when there is no snapshot, the lock cleared lines or fired a power-up, or the respawn collides, with a single undo level; Hold extra calls `unlockHold` and needs a locked hold. Timers (`timers.visionMs`, `timers.slowMs`) tick only in `loop` with `dt` clamped to `MAX_TIMER_TICK_MS`, so pause and a long frame gap after resume cannot expire them; `init()` resets everything. `queue` holds the pieces after `next` (`next` stays a plain variable, `next + queue` is the upcoming window); a pending power-up goes on `next`.
 
+### Modes and challenges
+
+The start menu (`#start-menu`) offers Normal and Desafío; Desafío lists `LEVELS` (rebuilt every time it opens). Normal plays with every bonus system. A challenge runs the same engine with `features.nonStandard`, `features.powerups` and `features.abilities` set to false for that run (the settings objects are never mutated); hold works and speed follows the normal level curve. Reverse rotation (`rules.invertRotation`, `rotateCCW`) and hidden locked blocks (`rules.invisibleLocked`) apply only in their level. `progress` (`lines`, `elapsedMs`, `fixedRemaining`, `toppedOut`) is checked by `checkChallenge` after every lock and every frame; `evaluate` returns `'playing' | 'won' | 'lost'` and topping out always loses. `elapsedMs` and the garbage timer advance only in `loop` with the clamped `dt`, so pause stops them. Fixed blocks use board value 13 (`FIXED_BLOCK`, gray) and clear like any other block when their row completes; garbage rows reuse the same value. `addGarbage` pushes the board up (`addGarbageRow`), lifts the active piece if it now overlaps, and a defeat follows if blocks overflow the top or the piece ends above the board. The end overlay offers Reintentar and Volver a niveles in a challenge (Reiniciar and Menú in Normal).
+
 ### Hold
 
 `holdPiece()` stores the active piece in the `hold` state (`{ type, locked }`, rules in `hold.js`). An empty slot spawns the next queued piece; an occupied slot swaps in the held type via `createPiece`, so a held piece always re-enters unrotated at the spawn position (and clears `lastMoveWasRotation`). Only one hold per piece: the slot is `locked` (dimmed via `#hold-canvas.locked`) until the next `lockPiece()`. A swapped-in piece that collides ends the game, like `spawn()`.
@@ -83,4 +90,4 @@ Points for a clear are `((line + tSpinBonus) * combo + b2bBonus + perfectClearBo
 
 ### Tunable constants (top of `game.js`)
 
-`COLS`, `ROWS`, `BLOCK`, `COLORS` in `game.js`; `PIECES` and `PIECE_SETTINGS` in `pieces.js`; every point value (`SCORE_VALUES`) in `scoring.js`. If `COLS`/`ROWS`/`BLOCK` change, update the `#board` canvas `width`/`height` in `index.html` to match (`COLS × BLOCK`, `ROWS × BLOCK`).
+`COLS`, `ROWS`, `BLOCK`, `COLORS` in `game.js`; `LEVELS` in `levels.js`; `ABILITY_SETTINGS` in `abilities.js`; `POWERUP_SETTINGS` in `powerups.js`; `PIECES` and `PIECE_SETTINGS` in `pieces.js`; every point value (`SCORE_VALUES`) in `scoring.js`. If `COLS`/`ROWS`/`BLOCK` change, update the `#board` canvas `width`/`height` in `index.html` to match (`COLS × BLOCK`, `ROWS × BLOCK`).

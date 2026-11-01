@@ -43,6 +43,10 @@ function rotateCW(shape) {
   return result;
 }
 
+function rotateCCW(shape) {
+  return rotateCW(rotateCW(rotateCW(shape)));
+}
+
 // True when `shape` placed at (ox, oy) leaves the board or overlaps a block.
 // Cells above the top edge (ny < 0) are allowed.
 function collides(board, shape, ox, oy) {
@@ -108,6 +112,7 @@ if (typeof module !== 'undefined' && module.exports) {
     PIECE_SETTINGS,
     PIECES,
     rotateCW,
+    rotateCCW,
     collides,
     spawnX,
     pickPieceType,

@@ -52,7 +52,7 @@
           <canvas id="next-canvas" width="120" height="120"></canvas>
         </div>
 
-        <div class="panel-section">
+        <div id="energy-section" class="panel-section">
           <span class="label">ENERGY</span>
           <div id="energy" class="energy" role="progressbar" aria-valuemin="0" aria-valuemax="100">
             <div id="energy-fill" class="energy-fill"></div>
@@ -62,6 +62,13 @@
       </aside>
 
       <aside class="panel panel-side">
+        <div id="challenge-hud" class="panel-section hidden">
+          <span class="label">CHALLENGE</span>
+          <span id="challenge-name" class="challenge-name"></span>
+          <span id="objective" class="objective"></span>
+          <span id="progress" class="progress"></span>
+        </div>
+
         <div id="vision-panel" class="panel-section inactive">
           <span class="label">VISION</span>
           <canvas id="vision-canvas" width="64" height="320"></canvas>
@@ -87,6 +94,22 @@
         <p id="overlay-title">GAME OVER</p>
         <p id="overlay-score"></p>
         <button id="restart-btn">Reiniciar</button>
+        <button id="menu-btn" class="secondary-btn">Menú</button>
+      </div>
+    </div>
+
+    <div id="start-menu" class="overlay start-menu">
+      <div class="overlay-box">
+        <p class="menu-title">TETRIS</p>
+        <div id="menu-modes" class="menu-group">
+          <button id="mode-normal" class="menu-btn">Normal</button>
+          <button id="mode-challenge" class="menu-btn">Desafío</button>
+        </div>
+        <div id="menu-levels" class="menu-group hidden">
+          <p class="menu-subtitle">Elige un desafío</p>
+          <div id="level-list" class="level-list"></div>
+          <button id="levels-back" class="secondary-btn">Atrás</button>
+        </div>
       </div>
     </div>
   </div>
@@ -95,6 +118,8 @@
   <script src="pieces.js"></script>
   <script src="powerups.js"></script>
   <script src="abilities.js"></script>
+  <script src="levels.js"></script>
+  <script src="challenge.js"></script>
   <script src="hold.js"></script>
   <script src="game.js"></script>
 </body>

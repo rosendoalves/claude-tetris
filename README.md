@@ -84,6 +84,8 @@ Después abre `http://localhost:8000` en el navegador.
 | `↑` o `X` | Rotar la pieza en sentido horario |
 | `↓`       | Soft drop (bajar más rápido)      |
 | `Espacio` | Hard drop (caída instantánea)     |
+| `C` / `Shift` | Reservar la pieza (hold)      |
+| `E`       | Menú de habilidades (barra llena) |
 | `P`       | Pausar / reanudar                 |
 
 ---
@@ -140,6 +142,20 @@ Cuando una pieza recién generada ya colisiona al aparecer (`spawn`), se dispara
 
 ---
 
+## Gameplay expansion
+
+Beyond the classic rules the game includes (all documented in `CLAUDE.md`):
+
+- **Hold**, **combos / T-spin / back-to-back / perfect clear** scoring and a light/dark theme.
+- **Non-standard pieces** (PLUS, U, Y, SINGLE, RING). `pieces.js` holds `PIECE_SETTINGS`, the single place for spawn chances and the on/off toggle. A Tetris rewards a SINGLE piece.
+- **Power-ups**: every 10 cleared lines the next piece carries a Bomb, Lightning, Tint, Gravity or Freeze block (`powerups.js`).
+- **Abilities**: clearing lines fills an energy bar; press `E` when it is full to open the menu (Vision, Swap, Slow, Undo, Extra hold) (`abilities.js`).
+- **Challenge mode**: a start menu offers Normal or Desafío. Levels are plain data in `levels.js` (Sprint, Basura, Tablero armado, Invisible, Rotación inversa); a new level only needs a new entry.
+
+Run the unit tests with `node --test` (no dependencies).
+
+---
+
 ## Tecnologías
 
 - **HTML5** — marcado y dos elementos `<canvas>` (tablero y vista previa).
@@ -158,7 +174,15 @@ Cuando una pieza recién generada ya colisiona al aparecer (`spawn`), se dispara
 03-tetris/
 ├── index.html      # Estructura del DOM y canvas
 ├── style.css       # Estilos del juego (dark theme)
-├── game.js         # Toda la lógica del Tetris (~300 líneas)
+├── game.js         # Estado del juego, bucle, dibujo y entrada
+├── scoring.js      # Puntuación pura (combos, T-spin, B2B)
+├── pieces.js       # Piezas y selección (estándar y no estándar)
+├── powerups.js     # Efectos de power-ups puros
+├── abilities.js    # Energía y habilidades puras
+├── hold.js         # Lógica pura del hold
+├── levels.js       # Niveles de desafío (datos)
+├── challenge.js    # Evaluación y utilidades de desafío puras
+├── *.test.js       # Tests con node:test
 └── README.md
 ```
 
