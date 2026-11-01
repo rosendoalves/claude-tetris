@@ -11,7 +11,7 @@ const COLORS = [
   '#ba68c8', // T - purple
   '#81c784', // S - green
   '#e57373', // Z - red
-  '#D6EAF8', // J - pale blue
+  '#64b5f6', // J - blue
   '#ffb74d', // L - orange
 ];
 
@@ -39,6 +39,17 @@ const overlay = document.getElementById('overlay');
 const overlayTitle = document.getElementById('overlay-title');
 const overlayScore = document.getElementById('overlay-score');
 const restartBtn = document.getElementById('restart-btn');
+const themeBtn = document.getElementById('theme-toggle');
+const root = document.documentElement;
+
+let gridColor;
+
+function applyTheme(theme) {
+  if (theme === 'light') root.dataset.theme = 'light';
+  else delete root.dataset.theme;
+  themeBtn.textContent = theme === 'light' ? '🌙 Dark' : '☀️ Light';
+  gridColor = getComputedStyle(root).getPropertyValue('--grid').trim();
+}
 
 let board, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId;
 
@@ -169,7 +180,7 @@ function drawBlock(context, x, y, colorIndex, size, alpha) {
 }
 
 function drawGrid() {
-  ctx.strokeStyle = '#22222e';
+  ctx.strokeStyle = gridColor;
   ctx.lineWidth = 0.5;
   for (let c = 1; c < COLS; c++) {
     ctx.beginPath();
@@ -300,5 +311,14 @@ document.addEventListener('keydown', e => {
 });
 
 restartBtn.addEventListener('click', init);
+
+themeBtn.addEventListener('click', () => {
+  const theme = root.dataset.theme === 'light' ? 'dark' : 'light';
+  applyTheme(theme);
+  try { localStorage.setItem('theme', theme); } catch (e) {}
+  themeBtn.blur(); // evita que Space/Enter vuelvan a activar el botón durante el juego
+});
+
+applyTheme(root.dataset.theme === 'light' ? 'light' : 'dark');
 
 init();
