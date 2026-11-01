@@ -36,6 +36,14 @@ const restartBtn = document.getElementById('restart-btn');
 const themeBtn = document.getElementById('theme-toggle');
 const feedbackEl = document.getElementById('feedback');
 const freezeEl = document.getElementById('freeze');
+const energyWrap = document.getElementById('energy');
+const energyFill = document.getElementById('energy-fill');
+const effectsEl = document.getElementById('effects');
+const visionPanel = document.getElementById('vision-panel');
+const visionCanvas = document.getElementById('vision-canvas');
+const visionCtx = visionCanvas.getContext('2d');
+const abilityMenu = document.getElementById('ability-menu');
+const abilityList = document.getElementById('ability-list');
 const root = document.documentElement;
 
 let gridColor;
@@ -49,12 +57,16 @@ function applyTheme(theme) {
 
 let board, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId;
 let scoring, lastMoveWasRotation, hold, freezeMs;
+// Upcoming pieces after `next` (so next + queue = the Vision window), ability
+// energy, vision/slow timers, the one-level undo snapshot and the menu flag.
+let queue, energy, timers, undoSnapshot, menuOpen;
+const QUEUE_LENGTH = ABILITY_SETTINGS.VISION_COUNT - 1;
 
 // Icon drawn on the block that carries a power-up.
 const POWERUP_ICONS = { bomb: '💣', lightning: '⚡', tint: '🎨', gravity: '⬇️', freeze: '❄️' };
 
 // Per-run feature flags. Settings objects (PIECE_SETTINGS...) are never mutated.
-const features = { nonStandard: true, powerups: true };
+const features = { nonStandard: true, powerups: true, abilities: true };
 
 function createBoard() {
   return Array.from({ length: ROWS }, () => new Array(COLS).fill(0));
@@ -107,6 +119,10 @@ function merge() {
         board[current.y + r][current.x + c] = current.shape[r][c];
 }
 
+function cloneBoard(b) {
+  return b.map(row => [...row]);
+}
+
 function clearLines(tSpin, extraAchievements = []) {
   let cleared = 0;
   for (let r = ROWS - 1; r >= 0; r--) {
@@ -131,6 +147,10 @@ function clearLines(tSpin, extraAchievements = []) {
     level = Math.floor(lines / 10) + 1;
     dropInterval = Math.max(100, 1000 - (level - 1) * 90);
     updateHUD();
+    if (features.abilities) {
+      energy = addEnergy(energy, cleared);
+      updateEnergyBar();
+    }
     // Every POWERUP_SETTINGS.LINE_INTERVAL lines the upcoming piece carries a power-up.
     if (features.powerups && crossedInterval(previousLines, lines)) {
       attachPowerup(next, pickPowerup(Math.random));
@@ -192,9 +212,23 @@ function firePowerup() {
 
 function lockPiece() {
   const tSpin = isTSpin(board, current, lastMoveWasRotation);
+  // One-level undo: board, scoring state and hold as they were before this lock.
+  // Score, lines and level are NOT rolled back (only drop points were earned,
+  // and undo is refused whenever lines were cleared).
+  undoSnapshot = {
+    board: cloneBoard(board),
+    scoring: { ...scoring },
+    hold: { ...hold },
+    type: current.type,
+    powerup: current.powerup ? current.powerup.kind : null,
+    cleared: false,
+    firedPowerup: false,
+  };
   merge();
   const announced = current.powerup ? [firePowerup()] : [];
   const cleared = clearLines(tSpin, announced);
+  undoSnapshot.cleared = cleared > 0;
+  undoSnapshot.firedPowerup = announced.length > 0;
   hold = unlockHold(hold);
   if (cleared === 4 && nonStandardOn()) spawnReward();
   else spawn();
@@ -210,7 +244,8 @@ function checkSpawnCollision() {
 
 function spawn() {
   current = next;
-  next = randomPiece();
+  next = queue.shift();
+  queue.push(randomPiece());
   lastMoveWasRotation = false;
   checkSpawnCollision();
   drawNext();
@@ -311,21 +346,176 @@ function draw() {
 }
 
 // Draws a piece centred in a 4x4-cell preview box, so no piece is ever cropped.
-function drawPreview(context, targetCanvas, piece) {
-  const PB = targetCanvas.width / 4;
-  context.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
-  if (!piece) return;
+// Draws a piece centred in a square box (4x4 cells) at pixel (ox, oy).
+function drawPieceInBox(context, piece, ox, oy, box) {
+  const PB = box / 4;
   const shape = piece.shape;
   const off = previewOffset(shape, 4);
+  const bx = ox / PB + off.x;
+  const by = oy / PB + off.y;
   for (let r = 0; r < shape.length; r++)
     for (let c = 0; c < shape[r].length; c++)
-      drawBlock(context, off.x + c, off.y + r, shape[r][c], PB);
-  if (piece.powerup) drawPowerupIcon(context, off.x + piece.powerup.c, off.y + piece.powerup.r, PB, piece.powerup.kind);
+      drawBlock(context, bx + c, by + r, shape[r][c], PB);
+  if (piece.powerup) drawPowerupIcon(context, bx + piece.powerup.c, by + piece.powerup.r, PB, piece.powerup.kind);
+}
+
+function drawPreview(context, targetCanvas, piece) {
+  context.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
+  if (piece) drawPieceInBox(context, piece, 0, 0, targetCanvas.width);
 }
 
 function drawNext() {
   drawPreview(nextCtx, nextCanvas, next);
+  drawVision();
 }
+
+// Vision shows next + the following pieces while its timer runs.
+function drawVision() {
+  const active = timers.visionMs > 0;
+  visionPanel.classList.toggle('inactive', !active);
+  visionCtx.clearRect(0, 0, visionCanvas.width, visionCanvas.height);
+  if (!active) return;
+  const box = visionCanvas.height / ABILITY_SETTINGS.VISION_COUNT;
+  [next, ...queue].slice(0, ABILITY_SETTINGS.VISION_COUNT).forEach((piece, i) => {
+    drawPieceInBox(visionCtx, piece, (visionCanvas.width - box) / 2, i * box, box);
+  });
+}
+
+function updateEnergyBar() {
+  const pct = Math.min(100, (energy / ABILITY_SETTINGS.ENERGY_REQUIRED) * 100);
+  energyFill.style.width = `${pct}%`;
+  energyWrap.classList.toggle('full', canOpenMenu(energy));
+}
+
+function updateEffects() {
+  const parts = [];
+  if (timers.visionMs > 0) parts.push(`VISION ${Math.ceil(timers.visionMs / 1000)}s`);
+  if (timers.slowMs > 0) parts.push(`SLOW ${Math.ceil(timers.slowMs / 1000)}s`);
+  effectsEl.textContent = parts.join('  ');
+}
+
+// ---- Abilities ----
+// Candidate types for Intercambio: any spawnable type except the current one
+// whose fresh piece fits at the spawn position.
+function swapTypes() {
+  const types = [];
+  for (let t = 1; t <= CLASSIC_COUNT; t++) types.push(t);
+  if (nonStandardOn()) types.push(...PENTOMINO_TYPES, RING_TYPE);
+  return types.filter(t => {
+    if (t === current.type) return false;
+    const piece = createPiece(t);
+    return !collide(piece.shape, piece.x, piece.y);
+  });
+}
+
+function undoRespawnFits() {
+  if (!undoSnapshot) return false;
+  const piece = createPiece(undoSnapshot.type);
+  return !collides(undoSnapshot.board, piece.shape, piece.x, piece.y);
+}
+
+function abilityContext() {
+  return {
+    holdLocked: hold.locked,
+    swapPossible: swapTypes().length > 0,
+    snapshot: undoSnapshot,
+    respawnFits: undoRespawnFits(),
+  };
+}
+
+function renderAbilityMenu() {
+  const info = abilityContext();
+  Array.from(abilityList.children).forEach(button => {
+    const available = isAbilityAvailable(Number(button.dataset.id), info);
+    button.disabled = !available;
+    button.classList.toggle('unavailable', !available);
+  });
+}
+
+// Pauses with the same mechanics as P but shows no PAUSA overlay and does not
+// cancel a freeze (freezeMs only ticks inside loop, so it simply waits).
+function openAbilityMenu() {
+  if (!features.abilities || gameOver || paused || menuOpen || !canOpenMenu(energy)) return;
+  menuOpen = true;
+  paused = true;
+  cancelAnimationFrame(animId);
+  renderAbilityMenu();
+  abilityMenu.classList.remove('hidden');
+}
+
+function closeAbilityMenu() {
+  if (!menuOpen) return;
+  menuOpen = false;
+  paused = false;
+  abilityMenu.classList.add('hidden');
+  lastTime = performance.now();
+  loop(lastTime);
+}
+
+function undoLastLock() {
+  const snap = undoSnapshot;
+  const restored = createPiece(snap.type);
+  if (snap.powerup) attachPowerup(restored, snap.powerup);
+  // The active piece goes back to the front of the queue.
+  const returned = createPiece(current.type);
+  if (current.powerup) attachPowerup(returned, current.powerup.kind);
+  queue.unshift(next);
+  next = returned;
+  board = cloneBoard(snap.board);
+  scoring = { ...snap.scoring };
+  hold = { ...snap.hold };
+  current = restored;
+  undoSnapshot = null;
+  lastMoveWasRotation = false;
+  dropAccum = 0;
+  drawHold();
+}
+
+function applyAbility(id) {
+  switch (id) {
+    case 1:
+      timers.visionMs = ABILITY_SETTINGS.VISION_MS;
+      break;
+    case 2: {
+      const types = swapTypes();
+      const old = current;
+      current = createPiece(types[Math.floor(Math.random() * types.length)]);
+      if (old.powerup) attachPowerup(current, old.powerup.kind);
+      lastMoveWasRotation = false;
+      break;
+    }
+    case 3:
+      timers.slowMs = ABILITY_SETTINGS.SLOW_MS;
+      break;
+    case 4:
+      undoLastLock();
+      break;
+    case 5:
+      hold = unlockHold(hold);
+      drawHold();
+      break;
+  }
+}
+
+// An unavailable choice does nothing: the menu stays open and energy is kept.
+function chooseAbility(id) {
+  if (!menuOpen || !isAbilityAvailable(id, abilityContext())) return;
+  applyAbility(id);
+  energy = 0;
+  updateEnergyBar();
+  updateEffects();
+  drawNext();
+  closeAbilityMenu();
+}
+
+ABILITIES.forEach(ability => {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.dataset.id = String(ability.id);
+  button.textContent = `${ability.id}  ${ability.name}`;
+  button.addEventListener('click', () => chooseAbility(ability.id));
+  abilityList.appendChild(button);
+});
 
 function drawHold() {
   let held = null;
@@ -377,13 +567,18 @@ function togglePause() {
 function loop(ts) {
   const dt = ts - lastTime;
   lastTime = ts;
+  // Timers use a clamped dt so a long frame gap (hidden tab, resume) cannot expire them.
+  const wasVision = timers.visionMs > 0;
+  timers = tickTimers(timers, dt);
+  if (timers.visionMs > 0 || timers.slowMs > 0 || wasVision) updateEffects();
+  if (wasVision && timers.visionMs === 0) drawVision();
   if (freezeMs > 0) {
     // Frozen: gravity is skipped, manual moves still work.
-    freezeMs = Math.max(0, freezeMs - dt);
+    freezeMs = Math.max(0, freezeMs - Math.min(dt, MAX_TIMER_TICK_MS));
     updateFreezeEl();
   } else {
     dropAccum += dt;
-    if (dropAccum >= dropInterval) {
+    if (dropAccum >= effectiveDropInterval(dropInterval, timers.slowMs)) {
       dropAccum = 0;
       if (!collide(current.shape, current.x, current.y + 1)) {
         current.y++;
@@ -413,7 +608,15 @@ function init() {
   cancelFreeze();
   feedbackEl.replaceChildren();
   lastTime = performance.now();
+  energy = 0;
+  timers = createTimers();
+  undoSnapshot = null;
+  menuOpen = false;
+  abilityMenu.classList.add('hidden');
+  updateEnergyBar();
+  updateEffects();
   next = randomPiece();
+  queue = Array.from({ length: QUEUE_LENGTH }, randomPiece);
   spawn();
   drawHold();
   updateHUD();
@@ -423,6 +626,15 @@ function init() {
 }
 
 document.addEventListener('keydown', e => {
+  if (menuOpen) {
+    // The ability menu owns the keyboard; P is ignored while it is open.
+    if (e.code === 'Escape') closeAbilityMenu();
+    else {
+      const digit = /^(?:Digit|Numpad)([1-9])$/.exec(e.code);
+      if (digit) chooseAbility(Number(digit[1]));
+    }
+    return;
+  }
   if (e.code === 'KeyP') { togglePause(); return; }
   if (paused || gameOver) return;
   switch (e.code) {
@@ -442,6 +654,9 @@ document.addEventListener('keydown', e => {
     case 'Space':
       e.preventDefault();
       hardDrop();
+      break;
+    case 'KeyE':
+      openAbilityMenu();
       break;
     case 'KeyC':
     case 'ShiftLeft':

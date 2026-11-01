@@ -16,7 +16,7 @@ python3 -m http.server 8000
 npx serve .
 ```
 
-Tests for the pure scoring, hold, piece and power-up modules run with Node's built-in runner (no dependencies):
+Tests for the pure scoring, hold, piece, power-up and ability modules run with Node's built-in runner (no dependencies):
 
 ```bash
 node --test
@@ -26,7 +26,7 @@ There is no linter configured in this repo.
 
 ## Architecture
 
-Eleven files, each with one responsibility:
+Thirteen files, each with one responsibility:
 
 - `index.html` — DOM structure: the `#board` canvas (300×600, 10×20 cells at `BLOCK=30`), the `#hold-canvas` and `#next-canvas` previews, the HUD panel (score/lines/level), and the pause/game-over `#overlay`, and the `#feedback` layer over the board (inside `.board-wrap`) that shows achievement text.
 - `style.css` — dark/retro visual theme, driven by CSS variables in `:root` (Dark, default) overridden by `[data-theme='light']`. The `#theme-toggle` button (wired in `game.js`) flips `data-theme` on `<html>` and persists the choice in `localStorage` (`theme`); `drawGrid` reads the `--grid` variable via `gridColor`. Add new colors as variables for both themes.
@@ -36,6 +36,8 @@ Eleven files, each with one responsibility:
 - `pieces.test.js` — `node:test` suite for `pieces.js`.
 - `powerups.js` — pure power-up logic (no DOM): `POWERUP_SETTINGS` (`LINE_INTERVAL`, `FREEZE_MS`), `bomb`, `lightning`, `tint`, `gravity`, `settleFloating`, `applyPowerup`, `pickPowerup`, `rotatePowerupCell`, `randomFilledCell`, `crossedInterval`. Board effects return new boards. Loaded before `game.js`; also `require`-able from Node.
 - `powerups.test.js` — `node:test` suite for `powerups.js`.
+- `abilities.js` — pure ability logic (no DOM): `ABILITY_SETTINGS`, `ABILITIES`, `addEnergy`, `canOpenMenu`, `canUndo`, `isAbilityAvailable`, `tickTimers`, `effectiveDropInterval`. Loaded before `game.js`; also `require`-able from Node.
+- `abilities.test.js` — `node:test` suite for `abilities.js`.
 - `hold.js` — pure hold logic (no DOM): `createHoldState`, `useHold`, `unlockHold` (the hold state also stores a power-up kind). Loaded before `game.js`; also `require`-able from Node.
 - `hold.test.js` — `node:test` suite for `hold.js`.
 - `game.js` — all game state and logic, structured around a single `requestAnimationFrame` loop.
@@ -57,7 +59,7 @@ lockPiece() → isTSpin() → merge() into board → clearLines(tSpin) → unloc
 spawn() → if the new piece immediately collides → endGame()
 ```
 
-Keyboard input (`keydown` listener) drives horizontal movement, `tryRotate`, `softDrop`, `hardDrop`, hold (`KeyC`, `ShiftLeft`, `ShiftRight`), and pause (`KeyP`); all input is ignored while `paused` or `gameOver`.
+Keyboard input (`keydown` listener) drives horizontal movement, `tryRotate`, `softDrop`, `hardDrop`, hold (`KeyC`, `ShiftLeft`, `ShiftRight`), ability menu (`KeyE`), and pause (`KeyP`); all input is ignored while `paused` or `gameOver`.
 
 ### Non-standard pieces
 
@@ -66,6 +68,10 @@ Besides the 7 classic pieces, types 8–12 exist: PLUS (8), U (9), Y (10, 4×4 l
 ### Power-ups
 
 Every `POWERUP_SETTINGS.LINE_INTERVAL` (10) cleared lines (several crossings in one clear count once) `clearLines` puts `powerup: { kind, r, c }` on a random filled cell of `next` (so the preview shows it). The cell follows `tryRotate` (`rotatePowerupCell`); it is drawn as an icon on the active piece (not the ghost) and in the previews; hold stores the kind and reapplies it to a random filled cell when the piece returns. On lock, `lockPiece` merges, runs `firePowerup` (board position = piece origin + cell) and only then the single `clearLines` call, so lines created by the effect clear and score normally; T-spin is computed before the merge. The effect name (BOMBA, RAYO, TINTE, GRAVEDAD, CONGELAR) is announced through `showAchievements`. Bomb, lightning and tint are followed by `settleFloating`, the "normal gravity" used here. ASSUMPTION: blocks that touch orthogonally (any colour) form one rigid cluster that falls until it rests on the floor or another cluster; GRAVEDAD is the different, per-column `gravity`. Freeze sets `freezeMs`: `loop` skips gravity while it counts down with `dt` (manual moves still work, countdown in `#freeze`); pause, game over and `init()` cancel it entirely via `cancelFreeze`. `features.powerups` disables the system per run.
+
+### Abilities and energy
+
+Clearing lines fills the `energy` bar (`ABILITY_SETTINGS.ENERGY_PER_LINES`, clamped to `ENERGY_REQUIRED`). `E` opens the menu only when the bar is full. The menu (`#ability-menu`) pauses through the same mechanics as `P` (`paused` plus `cancelAnimationFrame`) but shows no PAUSA overlay, ignores `P`, and does not cancel a freeze (`freezeMs` only ticks inside `loop`). `Escape` closes it keeping the energy; choosing an unavailable ability does nothing (the menu stays open, the button is disabled, energy is kept). A used ability empties the bar. Vision (20 s) shows `next` + 4 queued pieces in `#vision-canvas`; Intercambio replaces the active piece by a random different type that fits at spawn (power-up kind kept); Ralentizar doubles the effective gravity interval for 10 s via `effectiveDropInterval` without touching `dropInterval`; Deshacer restores the pre-lock `undoSnapshot` (board, scoring state, hold; score, lines and level are not rolled back, only drop points were earned) and is refused when there is no snapshot, the lock cleared lines or fired a power-up, or the respawn collides, with a single undo level; Hold extra calls `unlockHold` and needs a locked hold. Timers (`timers.visionMs`, `timers.slowMs`) tick only in `loop` with `dt` clamped to `MAX_TIMER_TICK_MS`, so pause and a long frame gap after resume cannot expire them; `init()` resets everything. `queue` holds the pieces after `next` (`next` stays a plain variable, `next + queue` is the upcoming window); a pending power-up goes on `next`.
 
 ### Hold
 

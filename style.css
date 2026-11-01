@@ -17,6 +17,10 @@
   --danger: #e57373;
   --achievement: #ffd54f;
   --freeze: #4dd0e1;
+  --energy: #7aa2f7;
+  --energy-full: #81c784;
+  --energy-bg: #22222e;
+  --menu-bg: rgba(15, 15, 23, 0.92);
   --shadow: rgba(0, 0, 0, 0.6);
   color-scheme: dark;
 }
@@ -39,6 +43,10 @@
   --danger: #d32f2f;
   --achievement: #b8620a;
   --freeze: #0277a8;
+  --energy: #3b5bdb;
+  --energy-full: #2e7d32;
+  --energy-bg: #dde0ea;
+  --menu-bg: rgba(255, 255, 255, 0.94);
   --shadow: rgba(0, 0, 0, 0.15);
   color-scheme: light;
 }
@@ -192,6 +200,117 @@ body {
 
 #hold-canvas.locked {
   opacity: 0.4;
+}
+
+/* ---- Energia y habilidades ---- */
+.energy {
+  height: 12px;
+  background: var(--energy-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.energy-fill {
+  height: 100%;
+  width: 0;
+  background: var(--energy);
+  transition: width 0.25s ease-out;
+}
+
+.energy.full {
+  border-color: var(--energy-full);
+  box-shadow: 0 0 8px var(--energy-full);
+}
+
+.energy.full .energy-fill {
+  background: var(--energy-full);
+}
+
+.effects {
+  min-height: 14px;
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.panel-side {
+  width: 130px;
+}
+
+#vision-canvas {
+  display: block;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 4px;
+}
+
+#vision-panel.inactive {
+  visibility: hidden;
+}
+
+.ability-menu {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 240px;
+  height: fit-content;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--menu-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 0 40px var(--shadow);
+}
+
+.ability-menu.hidden {
+  display: none;
+}
+
+.ability-title {
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 3px;
+  text-align: center;
+  color: var(--accent);
+}
+
+.ability-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ability-list button {
+  background: var(--accent);
+  color: var(--on-accent);
+  border: none;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ability-list button:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.ability-list button:disabled {
+  background: var(--kbd-bg);
+  color: var(--muted);
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.ability-hint {
+  font-size: 11px;
+  color: var(--muted);
+  text-align: center;
 }
 
 /* ---- Controles ---- */
