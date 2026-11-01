@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project overview
 
-Classic Tetris implemented in vanilla JavaScript with HTML5 Canvas and CSS. No dependencies, no build step, no package.json. The entire game logic lives in a single file, `game.js`.
+Classic Tetris implemented in vanilla JavaScript with HTML5 Canvas and CSS. No dependencies, no build step, no package.json. Game logic lives in `game.js`; pure scoring rules live in `scoring.js`.
 
 ## Running the game
 
@@ -16,14 +16,22 @@ python3 -m http.server 8000
 npx serve .
 ```
 
-There is no test suite and no linter configured in this repo.
+Tests for the pure scoring module run with Node's built-in runner (no dependencies):
+
+```bash
+node --test
+```
+
+There is no linter configured in this repo.
 
 ## Architecture
 
-Three files, each with one responsibility:
+Five files, each with one responsibility:
 
-- `index.html` — DOM structure: the `#board` canvas (300×600, 10×20 cells at `BLOCK=30`), the `#next-canvas` preview, the HUD panel (score/lines/level), and the pause/game-over `#overlay`.
+- `index.html` — DOM structure: the `#board` canvas (300×600, 10×20 cells at `BLOCK=30`), the `#next-canvas` preview, the HUD panel (score/lines/level), and the pause/game-over `#overlay`, and the `#feedback` layer over the board (inside `.board-wrap`) that shows achievement text.
 - `style.css` — dark/retro visual theme, driven by CSS variables in `:root` (Dark, default) overridden by `[data-theme='light']`. The `#theme-toggle` button (wired in `game.js`) flips `data-theme` on `<html>` and persists the choice in `localStorage` (`theme`); `drawGrid` reads the `--grid` variable via `gridColor`. Add new colors as variables for both themes.
+- `scoring.js` — pure scoring logic (no DOM): `SCORE_VALUES`, `createScoringState`, `isTSpin`, `isBoardEmpty`, `scoreClear`. Loaded before `game.js`; also `require`-able from Node.
+- `scoring.test.js` — `node:test` suite for `scoring.js`.
 - `game.js` — all game state and logic, structured around a single `requestAnimationFrame` loop.
 
 ### Core state
@@ -39,7 +47,7 @@ Module-level `let` variables (`board`, `current`, `next`, `score`, `lines`, `lev
 ```
 init() → createBoard(), spawn() first piece → requestAnimationFrame(loop)
 loop(ts) → accumulate dt → if dt ≥ dropInterval: advance piece or lockPiece() → draw() → next frame
-lockPiece() → merge() into board → clearLines() → spawn() next piece
+lockPiece() → isTSpin() → merge() into board → clearLines(tSpin) → spawn() next piece
 spawn() → if the new piece immediately collides → endGame()
 ```
 
@@ -47,8 +55,8 @@ Keyboard input (`keydown` listener) drives horizontal movement, `tryRotate`, `so
 
 ### Scoring / leveling
 
-`LINE_SCORES = [0, 100, 300, 500, 800]` multiplied by `level`; hard drop adds 2 points/cell dropped, soft drop 1 point/row. `level` increases every 10 cleared lines, and `dropInterval` scales as `max(100, 1000 - (level - 1) * 90)` ms.
+Points for a clear are `((line + tSpinBonus) * combo + b2bBonus + perfectClearBonus) * level`, computed by `scoreClear` in `scoring.js` (a clear with no bonuses is `SCORE_VALUES.LINES[n] * level`). `combo` counts consecutive clearing locks (1 on the first, label shown from x2) and resets on a lock with no clear. A T-spin is a T piece whose last move was a rotation (`lastMoveWasRotation` in `game.js`, cleared by any successful move, gravity step or non-zero hard drop) with 3+ occupied diagonal corners (walls/floor count). Back-to-Back applies between consecutive difficult clears (Tetris or T-spin); a lock with no clear does not break it, a common clear does. Achievements are shown through `showAchievements` in `#feedback`. Hard drop adds 2 points/cell dropped, soft drop 1 point/row. `level` increases every 10 cleared lines, and `dropInterval` scales as `max(100, 1000 - (level - 1) * 90)` ms.
 
 ### Tunable constants (top of `game.js`)
 
-`COLS`, `ROWS`, `BLOCK`, `COLORS`, `PIECES`, `LINE_SCORES`. If `COLS`/`ROWS`/`BLOCK` change, update the `#board` canvas `width`/`height` in `index.html` to match (`COLS × BLOCK`, `ROWS × BLOCK`).
+`COLS`, `ROWS`, `BLOCK`, `COLORS`, `PIECES` in `game.js`; every point value (`SCORE_VALUES`) in `scoring.js`. If `COLS`/`ROWS`/`BLOCK` change, update the `#board` canvas `width`/`height` in `index.html` to match (`COLS × BLOCK`, `ROWS × BLOCK`).

@@ -15,6 +15,7 @@
   --kbd-text: #aaa;
   --overlay-bg: rgba(10, 10, 20, 0.75);
   --danger: #e57373;
+  --achievement: #ffd54f;
   --shadow: rgba(0, 0, 0, 0.6);
   color-scheme: dark;
 }
@@ -35,6 +36,7 @@
   --kbd-text: #444;
   --overlay-bg: rgba(243, 244, 248, 0.75);
   --danger: #d32f2f;
+  --achievement: #b8620a;
   --shadow: rgba(0, 0, 0, 0.15);
   color-scheme: light;
 }
@@ -83,6 +85,51 @@ body {
   background: var(--surface);
   border-radius: 4px;
   box-shadow: 0 0 40px var(--shadow);
+}
+
+/* ---- Feedback de logros ---- */
+.board-wrap {
+  position: relative;
+}
+
+.feedback {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.feedback span {
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: 3px;
+  color: var(--achievement);
+  text-shadow: 0 2px 8px var(--shadow);
+  animation: achievement-pop 1s ease-out forwards;
+}
+
+@keyframes achievement-pop {
+  0%   { opacity: 0; transform: scale(0.6) translateY(0); }
+  20%  { opacity: 1; transform: scale(1.15) translateY(0); }
+  40%  { opacity: 1; transform: scale(1) translateY(0); }
+  100% { opacity: 0; transform: scale(1) translateY(-40px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .feedback span {
+    animation-name: achievement-fade;
+  }
+
+  @keyframes achievement-fade {
+    0%   { opacity: 0; }
+    20%  { opacity: 1; }
+    70%  { opacity: 1; }
+    100% { opacity: 0; }
+  }
 }
 
 /* ---- Panel lateral ---- */

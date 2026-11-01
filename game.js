@@ -26,8 +26,6 @@ const PIECES = [
   [[0,0,7],[7,7,7],[0,0,0]],                  // L
 ];
 
-const LINE_SCORES = [0, 100, 300, 500, 800];
-
 const canvas = document.getElementById('board');
 const ctx = canvas.getContext('2d');
 const nextCanvas = document.getElementById('next-canvas');
@@ -40,6 +38,7 @@ const overlayTitle = document.getElementById('overlay-title');
 const overlayScore = document.getElementById('overlay-score');
 const restartBtn = document.getElementById('restart-btn');
 const themeBtn = document.getElementById('theme-toggle');
+const feedbackEl = document.getElementById('feedback');
 const root = document.documentElement;
 
 let gridColor;
@@ -52,6 +51,7 @@ function applyTheme(theme) {
 }
 
 let board, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId;
+let scoring, lastMoveWasRotation;
 
 function createBoard() {
   return Array.from({ length: ROWS }, () => new Array(COLS).fill(0));
@@ -92,6 +92,7 @@ function tryRotate() {
     if (!collide(rotated, current.x + kick, current.y)) {
       current.shape = rotated;
       current.x += kick;
+      lastMoveWasRotation = true;
       return;
     }
   }
@@ -104,7 +105,7 @@ function merge() {
         board[current.y + r][current.x + c] = current.shape[r][c];
 }
 
-function clearLines() {
+function clearLines(tSpin) {
   let cleared = 0;
   for (let r = ROWS - 1; r >= 0; r--) {
     if (board[r].every(v => v !== 0)) {
@@ -114,13 +115,32 @@ function clearLines() {
       r++;
     }
   }
+  const result = scoreClear(scoring, {
+    cleared,
+    level,
+    tSpin,
+    perfectClear: cleared > 0 && isBoardEmpty(board),
+  });
+  scoring = result.state;
   if (cleared) {
     lines += cleared;
-    score += (LINE_SCORES[cleared] || 0) * level;
+    score += result.points;
     level = Math.floor(lines / 10) + 1;
     dropInterval = Math.max(100, 1000 - (level - 1) * 90);
     updateHUD();
+    if (result.achievements.length) showAchievements(result.achievements);
   }
+}
+
+function showAchievements(list) {
+  const spans = list.map(text => {
+    const span = document.createElement('span');
+    span.textContent = text;
+    return span;
+  });
+  // New elements restart the CSS animation; the last one cleans up.
+  spans[spans.length - 1].addEventListener('animationend', () => feedbackEl.replaceChildren());
+  feedbackEl.replaceChildren(...spans);
 }
 
 function ghostY() {
@@ -132,6 +152,7 @@ function ghostY() {
 function hardDrop() {
   const gy = ghostY();
   score += (gy - current.y) * 2;
+  if (gy > current.y) lastMoveWasRotation = false;
   current.y = gy;
   lockPiece();
 }
@@ -139,6 +160,7 @@ function hardDrop() {
 function softDrop() {
   if (!collide(current.shape, current.x, current.y + 1)) {
     current.y++;
+    lastMoveWasRotation = false;
     score += 1;
     updateHUD();
   } else {
@@ -147,14 +169,16 @@ function softDrop() {
 }
 
 function lockPiece() {
+  const tSpin = isTSpin(board, current, lastMoveWasRotation);
   merge();
-  clearLines();
+  clearLines(tSpin);
   spawn();
 }
 
 function spawn() {
   current = next;
   next = randomPiece();
+  lastMoveWasRotation = false;
   if (collide(current.shape, current.x, current.y)) {
     endGame();
   }
@@ -259,6 +283,7 @@ function loop(ts) {
     dropAccum = 0;
     if (!collide(current.shape, current.x, current.y + 1)) {
       current.y++;
+      lastMoveWasRotation = false;
     } else {
       lockPiece();
     }
@@ -276,6 +301,9 @@ function init() {
   gameOver = false;
   dropInterval = 1000;
   dropAccum = 0;
+  scoring = createScoringState();
+  lastMoveWasRotation = false;
+  feedbackEl.replaceChildren();
   lastTime = performance.now();
   next = randomPiece();
   spawn();
@@ -290,10 +318,10 @@ document.addEventListener('keydown', e => {
   if (paused || gameOver) return;
   switch (e.code) {
     case 'ArrowLeft':
-      if (!collide(current.shape, current.x - 1, current.y)) current.x--;
+      if (!collide(current.shape, current.x - 1, current.y)) { current.x--; lastMoveWasRotation = false; }
       break;
     case 'ArrowRight':
-      if (!collide(current.shape, current.x + 1, current.y)) current.x++;
+      if (!collide(current.shape, current.x + 1, current.y)) { current.x++; lastMoveWasRotation = false; }
       break;
     case 'ArrowDown':
       softDrop();

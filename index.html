@@ -17,7 +17,10 @@
   <h1 class="game-title">TETRIS</h1>
   <div class="wrapper">
     <div class="game-container">
-      <canvas id="board" width="300" height="600"></canvas>
+      <div class="board-wrap">
+        <canvas id="board" width="300" height="600"></canvas>
+        <div id="feedback" class="feedback" aria-live="polite"></div>
+      </div>
 
       <aside class="panel">
         <div class="panel-section">
@@ -60,6 +63,7 @@
     </div>
   </div>
 
+  <script src="scoring.js"></script>
   <script src="game.js"></script>
 </body>
 </html>
