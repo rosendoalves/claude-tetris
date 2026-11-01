@@ -13,17 +13,11 @@ const COLORS = [
   '#e57373', // Z - red
   '#64b5f6', // J - blue
   '#ffb74d', // L - orange
-];
-
-const PIECES = [
-  null,
-  [[0,0,0,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]], // I
-  [[2,2],[2,2]],                               // O
-  [[0,3,0],[3,3,3],[0,0,0]],                  // T
-  [[0,4,4],[4,4,0],[0,0,0]],                  // S
-  [[5,5,0],[0,5,5],[0,0,0]],                  // Z
-  [[6,0,0],[6,6,6],[0,0,0]],                  // J
-  [[0,0,7],[7,7,7],[0,0,0]],                  // L
+  '#f06292', // PLUS - pink
+  '#4db6ac', // U - teal
+  '#aed581', // Y - lime
+  '#fff176', // SINGLE - light yellow
+  '#9575cd', // RING - violet
 ];
 
 const canvas = document.getElementById('board');
@@ -55,39 +49,29 @@ function applyTheme(theme) {
 let board, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId;
 let scoring, lastMoveWasRotation, hold;
 
+// Per-run feature flags. Settings objects (PIECE_SETTINGS...) are never mutated.
+const features = { nonStandard: true };
+
 function createBoard() {
   return Array.from({ length: ROWS }, () => new Array(COLS).fill(0));
 }
 
 function createPiece(type) {
   const shape = PIECES[type].map(row => [...row]);
-  return { type, shape, x: Math.floor(COLS / 2) - Math.floor(shape[0].length / 2), y: 0 };
+  return { type, shape, x: spawnX(COLS, shape[0].length), y: 0 };
+}
+
+function nonStandardOn() {
+  return PIECE_SETTINGS.NON_STANDARD_ENABLED && features.nonStandard;
 }
 
 function randomPiece() {
-  return createPiece(Math.floor(Math.random() * 7) + 1);
+  const settings = { ...PIECE_SETTINGS, NON_STANDARD_ENABLED: nonStandardOn() };
+  return createPiece(pickPieceType(Math.random, settings));
 }
 
 function collide(shape, ox, oy) {
-  for (let r = 0; r < shape.length; r++) {
-    for (let c = 0; c < shape[r].length; c++) {
-      if (!shape[r][c]) continue;
-      const nx = ox + c;
-      const ny = oy + r;
-      if (nx < 0 || nx >= COLS || ny >= ROWS) return true;
-      if (ny >= 0 && board[ny][nx]) return true;
-    }
-  }
-  return false;
-}
-
-function rotateCW(shape) {
-  const rows = shape.length, cols = shape[0].length;
-  const result = Array.from({ length: cols }, () => new Array(rows).fill(0));
-  for (let r = 0; r < rows; r++)
-    for (let c = 0; c < cols; c++)
-      result[c][rows - 1 - r] = shape[r][c];
-  return result;
+  return collides(board, shape, ox, oy);
 }
 
 function tryRotate() {
@@ -135,6 +119,7 @@ function clearLines(tSpin) {
     updateHUD();
     if (result.achievements.length) showAchievements(result.achievements);
   }
+  return cleared;
 }
 
 function showAchievements(list) {
@@ -176,9 +161,10 @@ function softDrop() {
 function lockPiece() {
   const tSpin = isTSpin(board, current, lastMoveWasRotation);
   merge();
-  clearLines(tSpin);
+  const cleared = clearLines(tSpin);
   hold = unlockHold(hold);
-  spawn();
+  if (cleared === 4 && nonStandardOn()) spawnReward();
+  else spawn();
   drawHold();
 }
 
@@ -195,6 +181,14 @@ function spawn() {
   lastMoveWasRotation = false;
   checkSpawnCollision();
   drawNext();
+}
+
+// Tetris reward: the active piece becomes a fresh SINGLE and the queued next
+// piece is left untouched for the following spawn.
+function spawnReward() {
+  current = createPiece(SINGLE_TYPE);
+  lastMoveWasRotation = false;
+  checkSpawnCollision();
 }
 
 function holdPiece() {
@@ -268,16 +262,16 @@ function draw() {
       drawBlock(ctx, current.x + c, current.y + r, current.shape[r][c], BLOCK);
 }
 
+// Draws a piece centred in a 4x4-cell preview box, so no piece is ever cropped.
 function drawPreview(context, targetCanvas, piece) {
-  const PB = 30;
+  const PB = targetCanvas.width / 4;
   context.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
   if (!piece) return;
   const shape = piece.shape;
-  const offX = Math.floor((4 - shape[0].length) / 2);
-  const offY = Math.floor((4 - shape.length) / 2);
+  const off = previewOffset(shape, 4);
   for (let r = 0; r < shape.length; r++)
     for (let c = 0; c < shape[r].length; c++)
-      drawBlock(context, offX + c, offY + r, shape[r][c], PB);
+      drawBlock(context, off.x + c, off.y + r, shape[r][c], PB);
 }
 
 function drawNext() {

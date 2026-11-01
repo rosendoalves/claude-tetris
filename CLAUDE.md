@@ -16,7 +16,7 @@ python3 -m http.server 8000
 npx serve .
 ```
 
-Tests for the pure scoring and hold modules run with Node's built-in runner (no dependencies):
+Tests for the pure scoring, hold and piece modules run with Node's built-in runner (no dependencies):
 
 ```bash
 node --test
@@ -26,12 +26,14 @@ There is no linter configured in this repo.
 
 ## Architecture
 
-Seven files, each with one responsibility:
+Nine files, each with one responsibility:
 
 - `index.html` — DOM structure: the `#board` canvas (300×600, 10×20 cells at `BLOCK=30`), the `#hold-canvas` and `#next-canvas` previews, the HUD panel (score/lines/level), and the pause/game-over `#overlay`, and the `#feedback` layer over the board (inside `.board-wrap`) that shows achievement text.
 - `style.css` — dark/retro visual theme, driven by CSS variables in `:root` (Dark, default) overridden by `[data-theme='light']`. The `#theme-toggle` button (wired in `game.js`) flips `data-theme` on `<html>` and persists the choice in `localStorage` (`theme`); `drawGrid` reads the `--grid` variable via `gridColor`. Add new colors as variables for both themes.
 - `scoring.js` — pure scoring logic (no DOM): `SCORE_VALUES`, `createScoringState`, `isTSpin`, `isBoardEmpty`, `scoreClear`. Loaded before `game.js`; also `require`-able from Node.
 - `scoring.test.js` — `node:test` suite for `scoring.js`.
+- `pieces.js` — pure piece data and selection (no DOM): `PIECES` (types 1–12), `PIECE_SETTINGS` (the single place for spawn probabilities and the `NON_STANDARD_ENABLED` toggle), `rotateCW`, `collides`, `spawnX`, `pickPieceType(rng, settings)`, `previewOffset`. Loaded before `game.js`; also `require`-able from Node.
+- `pieces.test.js` — `node:test` suite for `pieces.js`.
 - `hold.js` — pure hold logic (no DOM): `createHoldState`, `useHold`, `unlockHold`. Loaded before `game.js`; also `require`-able from Node.
 - `hold.test.js` — `node:test` suite for `hold.js`.
 - `game.js` — all game state and logic, structured around a single `requestAnimationFrame` loop.
@@ -40,7 +42,7 @@ Seven files, each with one responsibility:
 
 Module-level `let` variables (`board`, `current`, `next`, `score`, `lines`, `level`, `paused`, `gameOver`, `dropInterval`, ...) hold all game state — there is no class or store; `init()` resets them all and kicks off the loop.
 
-- `board` is a `ROWS × COLS` matrix; each cell is `0` (empty) or a piece color index (1–7).
+- `board` is a `ROWS × COLS` matrix; each cell is `0` (empty) or a piece color index (1–12; the type doubles as the colour index).
 - `current` / `next` are `{ type, shape, x, y }`, where `shape` is a square matrix of color indices.
 - Pieces rotate via `rotateCW` (matrix transpose), with wall-kick offsets `[0, -1, 1, -2, 2]` tried in `tryRotate`.
 
@@ -55,6 +57,10 @@ spawn() → if the new piece immediately collides → endGame()
 
 Keyboard input (`keydown` listener) drives horizontal movement, `tryRotate`, `softDrop`, `hardDrop`, hold (`KeyC`, `ShiftLeft`, `ShiftRight`), and pause (`KeyP`); all input is ignored while `paused` or `gameOver`.
 
+### Non-standard pieces
+
+Besides the 7 classic pieces, types 8–12 exist: PLUS (8), U (9), Y (10, 4×4 like I), SINGLE (11, 1×1) and RING (12, hollow, 8 blocks). They share the same system: square matrices rotated by `rotateCW`, locked with their own colour. `pickPieceType` rolls RING with `RING_CHANCE` and a PLUS/U/Y (one third each) with `PENTOMINO_CHANCE`; SINGLE never spawns randomly. With `PIECE_SETTINGS.NON_STANDARD_ENABLED = false` only classic pieces appear, uniformly, and the reward below is off. Reward: when one lock clears exactly 4 lines (`clearLines` returns the count) the active piece becomes a fresh SINGLE and `next` is not consumed. `drawPreview` centres the filled cells of any piece in the 4×4 preview box. T-spin stays T-only.
+
 ### Hold
 
 `holdPiece()` stores the active piece in the `hold` state (`{ type, locked }`, rules in `hold.js`). An empty slot spawns the next queued piece; an occupied slot swaps in the held type via `createPiece`, so a held piece always re-enters unrotated at the spawn position (and clears `lastMoveWasRotation`). Only one hold per piece: the slot is `locked` (dimmed via `#hold-canvas.locked`) until the next `lockPiece()`. A swapped-in piece that collides ends the game, like `spawn()`.
@@ -65,4 +71,4 @@ Points for a clear are `((line + tSpinBonus) * combo + b2bBonus + perfectClearBo
 
 ### Tunable constants (top of `game.js`)
 
-`COLS`, `ROWS`, `BLOCK`, `COLORS`, `PIECES` in `game.js`; every point value (`SCORE_VALUES`) in `scoring.js`. If `COLS`/`ROWS`/`BLOCK` change, update the `#board` canvas `width`/`height` in `index.html` to match (`COLS × BLOCK`, `ROWS × BLOCK`).
+`COLS`, `ROWS`, `BLOCK`, `COLORS` in `game.js`; `PIECES` and `PIECE_SETTINGS` in `pieces.js`; every point value (`SCORE_VALUES`) in `scoring.js`. If `COLS`/`ROWS`/`BLOCK` change, update the `#board` canvas `width`/`height` in `index.html` to match (`COLS × BLOCK`, `ROWS × BLOCK`).
