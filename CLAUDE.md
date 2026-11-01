@@ -16,7 +16,7 @@ python3 -m http.server 8000
 npx serve .
 ```
 
-Tests for the pure scoring, hold and piece modules run with Node's built-in runner (no dependencies):
+Tests for the pure scoring, hold, piece and power-up modules run with Node's built-in runner (no dependencies):
 
 ```bash
 node --test
@@ -26,7 +26,7 @@ There is no linter configured in this repo.
 
 ## Architecture
 
-Nine files, each with one responsibility:
+Eleven files, each with one responsibility:
 
 - `index.html` — DOM structure: the `#board` canvas (300×600, 10×20 cells at `BLOCK=30`), the `#hold-canvas` and `#next-canvas` previews, the HUD panel (score/lines/level), and the pause/game-over `#overlay`, and the `#feedback` layer over the board (inside `.board-wrap`) that shows achievement text.
 - `style.css` — dark/retro visual theme, driven by CSS variables in `:root` (Dark, default) overridden by `[data-theme='light']`. The `#theme-toggle` button (wired in `game.js`) flips `data-theme` on `<html>` and persists the choice in `localStorage` (`theme`); `drawGrid` reads the `--grid` variable via `gridColor`. Add new colors as variables for both themes.
@@ -34,7 +34,9 @@ Nine files, each with one responsibility:
 - `scoring.test.js` — `node:test` suite for `scoring.js`.
 - `pieces.js` — pure piece data and selection (no DOM): `PIECES` (types 1–12), `PIECE_SETTINGS` (the single place for spawn probabilities and the `NON_STANDARD_ENABLED` toggle), `rotateCW`, `collides`, `spawnX`, `pickPieceType(rng, settings)`, `previewOffset`. Loaded before `game.js`; also `require`-able from Node.
 - `pieces.test.js` — `node:test` suite for `pieces.js`.
-- `hold.js` — pure hold logic (no DOM): `createHoldState`, `useHold`, `unlockHold`. Loaded before `game.js`; also `require`-able from Node.
+- `powerups.js` — pure power-up logic (no DOM): `POWERUP_SETTINGS` (`LINE_INTERVAL`, `FREEZE_MS`), `bomb`, `lightning`, `tint`, `gravity`, `settleFloating`, `applyPowerup`, `pickPowerup`, `rotatePowerupCell`, `randomFilledCell`, `crossedInterval`. Board effects return new boards. Loaded before `game.js`; also `require`-able from Node.
+- `powerups.test.js` — `node:test` suite for `powerups.js`.
+- `hold.js` — pure hold logic (no DOM): `createHoldState`, `useHold`, `unlockHold` (the hold state also stores a power-up kind). Loaded before `game.js`; also `require`-able from Node.
 - `hold.test.js` — `node:test` suite for `hold.js`.
 - `game.js` — all game state and logic, structured around a single `requestAnimationFrame` loop.
 
@@ -60,6 +62,10 @@ Keyboard input (`keydown` listener) drives horizontal movement, `tryRotate`, `so
 ### Non-standard pieces
 
 Besides the 7 classic pieces, types 8–12 exist: PLUS (8), U (9), Y (10, 4×4 like I), SINGLE (11, 1×1) and RING (12, hollow, 8 blocks). They share the same system: square matrices rotated by `rotateCW`, locked with their own colour. `pickPieceType` rolls RING with `RING_CHANCE` and a PLUS/U/Y (one third each) with `PENTOMINO_CHANCE`; SINGLE never spawns randomly. With `PIECE_SETTINGS.NON_STANDARD_ENABLED = false` only classic pieces appear, uniformly, and the reward below is off. Reward: when one lock clears exactly 4 lines (`clearLines` returns the count) the active piece becomes a fresh SINGLE and `next` is not consumed. `drawPreview` centres the filled cells of any piece in the 4×4 preview box. T-spin stays T-only.
+
+### Power-ups
+
+Every `POWERUP_SETTINGS.LINE_INTERVAL` (10) cleared lines (several crossings in one clear count once) `clearLines` puts `powerup: { kind, r, c }` on a random filled cell of `next` (so the preview shows it). The cell follows `tryRotate` (`rotatePowerupCell`); it is drawn as an icon on the active piece (not the ghost) and in the previews; hold stores the kind and reapplies it to a random filled cell when the piece returns. On lock, `lockPiece` merges, runs `firePowerup` (board position = piece origin + cell) and only then the single `clearLines` call, so lines created by the effect clear and score normally; T-spin is computed before the merge. The effect name (BOMBA, RAYO, TINTE, GRAVEDAD, CONGELAR) is announced through `showAchievements`. Bomb, lightning and tint are followed by `settleFloating`, the "normal gravity" used here. ASSUMPTION: blocks that touch orthogonally (any colour) form one rigid cluster that falls until it rests on the floor or another cluster; GRAVEDAD is the different, per-column `gravity`. Freeze sets `freezeMs`: `loop` skips gravity while it counts down with `dt` (manual moves still work, countdown in `#freeze`); pause, game over and `init()` cancel it entirely via `cancelFreeze`. `features.powerups` disables the system per run.
 
 ### Hold
 

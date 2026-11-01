@@ -35,6 +35,7 @@ const overlayScore = document.getElementById('overlay-score');
 const restartBtn = document.getElementById('restart-btn');
 const themeBtn = document.getElementById('theme-toggle');
 const feedbackEl = document.getElementById('feedback');
+const freezeEl = document.getElementById('freeze');
 const root = document.documentElement;
 
 let gridColor;
@@ -47,10 +48,13 @@ function applyTheme(theme) {
 }
 
 let board, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId;
-let scoring, lastMoveWasRotation, hold;
+let scoring, lastMoveWasRotation, hold, freezeMs;
+
+// Icon drawn on the block that carries a power-up.
+const POWERUP_ICONS = { bomb: '💣', lightning: '⚡', tint: '🎨', gravity: '⬇️', freeze: '❄️' };
 
 // Per-run feature flags. Settings objects (PIECE_SETTINGS...) are never mutated.
-const features = { nonStandard: true };
+const features = { nonStandard: true, powerups: true };
 
 function createBoard() {
   return Array.from({ length: ROWS }, () => new Array(COLS).fill(0));
@@ -59,6 +63,11 @@ function createBoard() {
 function createPiece(type) {
   const shape = PIECES[type].map(row => [...row]);
   return { type, shape, x: spawnX(COLS, shape[0].length), y: 0 };
+}
+
+// Puts a power-up of `kind` on a random filled cell of the piece.
+function attachPowerup(piece, kind) {
+  piece.powerup = { kind, ...randomFilledCell(piece.shape, Math.random) };
 }
 
 function nonStandardOn() {
@@ -79,6 +88,10 @@ function tryRotate() {
   const kicks = [0, -1, 1, -2, 2];
   for (const kick of kicks) {
     if (!collide(rotated, current.x + kick, current.y)) {
+      if (current.powerup) {
+        const { kind, r, c } = current.powerup;
+        current.powerup = { kind, ...rotatePowerupCell({ r, c }, rotated.length) };
+      }
       current.shape = rotated;
       current.x += kick;
       lastMoveWasRotation = true;
@@ -94,7 +107,7 @@ function merge() {
         board[current.y + r][current.x + c] = current.shape[r][c];
 }
 
-function clearLines(tSpin) {
+function clearLines(tSpin, extraAchievements = []) {
   let cleared = 0;
   for (let r = ROWS - 1; r >= 0; r--) {
     if (board[r].every(v => v !== 0)) {
@@ -111,14 +124,21 @@ function clearLines(tSpin) {
     perfectClear: cleared > 0 && isBoardEmpty(board),
   });
   scoring = result.state;
+  const previousLines = lines;
   if (cleared) {
     lines += cleared;
     score += result.points;
     level = Math.floor(lines / 10) + 1;
     dropInterval = Math.max(100, 1000 - (level - 1) * 90);
     updateHUD();
-    if (result.achievements.length) showAchievements(result.achievements);
+    // Every POWERUP_SETTINGS.LINE_INTERVAL lines the upcoming piece carries a power-up.
+    if (features.powerups && crossedInterval(previousLines, lines)) {
+      attachPowerup(next, pickPowerup(Math.random));
+      drawNext();
+    }
   }
+  const messages = [...extraAchievements, ...result.achievements];
+  if (messages.length) showAchievements(messages);
   return cleared;
 }
 
@@ -158,10 +178,23 @@ function softDrop() {
   }
 }
 
+// Applies the special block of the locked piece; returns the name to announce.
+function firePowerup() {
+  const { kind, r, c } = current.powerup;
+  if (kind === 'freeze') {
+    freezeMs = POWERUP_SETTINGS.FREEZE_MS;
+    updateFreezeEl();
+  } else {
+    board = applyPowerup(kind, board, current.y + r, current.x + c);
+  }
+  return POWERUP_NAMES[kind];
+}
+
 function lockPiece() {
   const tSpin = isTSpin(board, current, lastMoveWasRotation);
   merge();
-  const cleared = clearLines(tSpin);
+  const announced = current.powerup ? [firePowerup()] : [];
+  const cleared = clearLines(tSpin, announced);
   hold = unlockHold(hold);
   if (cleared === 4 && nonStandardOn()) spawnReward();
   else spawn();
@@ -192,13 +225,14 @@ function spawnReward() {
 }
 
 function holdPiece() {
-  const result = useHold(hold, current.type);
+  const result = useHold(hold, current.type, current.powerup ? current.powerup.kind : null);
   if (!result.used) return;
   hold = result.state;
   if (result.swapType === null) {
     spawn();
   } else {
     current = createPiece(result.swapType);
+    if (result.swapPowerup) attachPowerup(current, result.swapPowerup);
     lastMoveWasRotation = false;
     checkSpawnCollision();
   }
@@ -221,6 +255,17 @@ function drawBlock(context, x, y, colorIndex, size, alpha) {
   context.fillStyle = 'rgba(255,255,255,0.12)';
   context.fillRect(x * size + 1, y * size + 1, size - 2, 4);
   context.globalAlpha = 1;
+}
+
+function drawPowerupIcon(context, x, y, size, kind) {
+  context.strokeStyle = '#ffffff';
+  context.lineWidth = 2;
+  context.strokeRect(x * size + 2, y * size + 2, size - 4, size - 4);
+  context.font = `${Math.round(size * 0.6)}px sans-serif`;
+  context.textAlign = 'center';
+  context.textBaseline = 'middle';
+  context.fillStyle = '#ffffff';
+  context.fillText(POWERUP_ICONS[kind], x * size + size / 2, y * size + size / 2 + 1);
 }
 
 function drawGrid() {
@@ -260,6 +305,9 @@ function draw() {
   for (let r = 0; r < current.shape.length; r++)
     for (let c = 0; c < current.shape[r].length; c++)
       drawBlock(ctx, current.x + c, current.y + r, current.shape[r][c], BLOCK);
+  if (current.powerup) {
+    drawPowerupIcon(ctx, current.x + current.powerup.c, current.y + current.powerup.r, BLOCK, current.powerup.kind);
+  }
 }
 
 // Draws a piece centred in a 4x4-cell preview box, so no piece is ever cropped.
@@ -272,6 +320,7 @@ function drawPreview(context, targetCanvas, piece) {
   for (let r = 0; r < shape.length; r++)
     for (let c = 0; c < shape[r].length; c++)
       drawBlock(context, off.x + c, off.y + r, shape[r][c], PB);
+  if (piece.powerup) drawPowerupIcon(context, off.x + piece.powerup.c, off.y + piece.powerup.r, PB, piece.powerup.kind);
 }
 
 function drawNext() {
@@ -279,12 +328,30 @@ function drawNext() {
 }
 
 function drawHold() {
-  drawPreview(holdCtx, holdCanvas, hold.type ? createPiece(hold.type) : null);
+  let held = null;
+  if (hold.type) {
+    held = createPiece(hold.type);
+    // The held kind returns on a random cell; the preview shows a fixed one.
+    if (hold.powerup) held.powerup = { kind: hold.powerup, ...randomFilledCell(held.shape, () => 0) };
+  }
+  drawPreview(holdCtx, holdCanvas, held);
   holdCanvas.classList.toggle('locked', hold.locked);
+}
+
+function updateFreezeEl() {
+  freezeEl.classList.toggle('hidden', freezeMs <= 0);
+  freezeEl.textContent = `CONGELADO ${(Math.max(freezeMs, 0) / 1000).toFixed(1)}s`;
+}
+
+// Pause, game over and restart cancel any active freeze entirely.
+function cancelFreeze() {
+  freezeMs = 0;
+  updateFreezeEl();
 }
 
 function endGame() {
   gameOver = true;
+  cancelFreeze();
   cancelAnimationFrame(animId);
   overlayTitle.textContent = 'GAME OVER';
   overlayScore.textContent = `Puntuación: ${score.toLocaleString()}`;
@@ -300,6 +367,7 @@ function togglePause() {
     loop(lastTime);
   } else {
     cancelAnimationFrame(animId);
+    cancelFreeze();
     overlayTitle.textContent = 'PAUSA';
     overlayScore.textContent = '';
     overlay.classList.remove('hidden');
@@ -309,16 +377,23 @@ function togglePause() {
 function loop(ts) {
   const dt = ts - lastTime;
   lastTime = ts;
-  dropAccum += dt;
-  if (dropAccum >= dropInterval) {
-    dropAccum = 0;
-    if (!collide(current.shape, current.x, current.y + 1)) {
-      current.y++;
-      lastMoveWasRotation = false;
-    } else {
-      lockPiece();
+  if (freezeMs > 0) {
+    // Frozen: gravity is skipped, manual moves still work.
+    freezeMs = Math.max(0, freezeMs - dt);
+    updateFreezeEl();
+  } else {
+    dropAccum += dt;
+    if (dropAccum >= dropInterval) {
+      dropAccum = 0;
+      if (!collide(current.shape, current.x, current.y + 1)) {
+        current.y++;
+        lastMoveWasRotation = false;
+      } else {
+        lockPiece();
+      }
     }
   }
+  if (gameOver) return;
   draw();
   animId = requestAnimationFrame(loop);
 }
@@ -335,6 +410,7 @@ function init() {
   scoring = createScoringState();
   lastMoveWasRotation = false;
   hold = createHoldState();
+  cancelFreeze();
   feedbackEl.replaceChildren();
   lastTime = performance.now();
   next = randomPiece();

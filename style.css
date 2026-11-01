@@ -16,6 +16,7 @@
   --overlay-bg: rgba(10, 10, 20, 0.75);
   --danger: #e57373;
   --achievement: #ffd54f;
+  --freeze: #4dd0e1;
   --shadow: rgba(0, 0, 0, 0.6);
   color-scheme: dark;
 }
@@ -37,6 +38,7 @@
   --overlay-bg: rgba(243, 244, 248, 0.75);
   --danger: #d32f2f;
   --achievement: #b8620a;
+  --freeze: #0277a8;
   --shadow: rgba(0, 0, 0, 0.15);
   color-scheme: light;
 }
@@ -110,6 +112,24 @@ body {
   color: var(--achievement);
   text-shadow: 0 2px 8px var(--shadow);
   animation: achievement-pop 1s ease-out forwards;
+}
+
+.freeze {
+  position: absolute;
+  top: 8px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 3px;
+  color: var(--freeze);
+  text-shadow: 0 1px 6px var(--shadow);
+  pointer-events: none;
+}
+
+.freeze.hidden {
+  display: none;
 }
 
 @keyframes achievement-pop {
