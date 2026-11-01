@@ -237,7 +237,13 @@ function firePowerup() {
   return POWERUP_NAMES[kind];
 }
 
+function isAboveBoard() {
+  return current.shape.some((row, r) => row.some(v => v && current.y + r < 0));
+}
+
 function lockPiece() {
+  // Garbage can leave part of a rotated piece above the board: it cannot lock there.
+  if (isAboveBoard()) { endGame(); return; }
   const tSpin = isTSpin(board, current, lastMoveWasRotation);
   // One-level undo: board, scoring state and hold as they were before this lock.
   // Score, lines and level are NOT rolled back (only drop points were earned,
@@ -291,6 +297,8 @@ function holdPiece() {
   const result = useHold(hold, current.type, current.powerup ? current.powerup.kind : null);
   if (!result.used) return;
   hold = result.state;
+  // The snapshot predates this hold, so restoring it would lose or duplicate a piece.
+  undoSnapshot = null;
   if (result.swapType === null) {
     spawn();
   } else {
@@ -592,11 +600,13 @@ function endGame() {
     return;
   }
   stopRun();
+  draw();
   showOverlay('GAME OVER', `Puntuación: ${score.toLocaleString()}`);
 }
 
 function finishChallenge(result) {
   stopRun();
+  draw();
   const won = result === 'won';
   showOverlay(
     won ? 'VICTORIA' : 'DERROTA',
@@ -630,7 +640,7 @@ function addGarbage() {
   let toppedOut = result.overflowed;
   let guard = 0;
   while (collide(current.shape, current.x, current.y) && guard++ < ROWS) current.y--;
-  if (current.shape.some((row, r) => row.some(v => v && current.y + r < 0))) toppedOut = true;
+  if (isAboveBoard()) toppedOut = true;
   if (toppedOut) {
     progress = { ...progress, toppedOut: true };
     finishChallenge('lost');
